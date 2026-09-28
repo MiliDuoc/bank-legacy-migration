@@ -30,7 +30,7 @@ public class JwtTokenGenerator {
                 )
                 .signWith(
                         Keys.hmacShaKeyFor(
-                                JwtConstants.SECRET.getBytes(
+                                JwtSecretProvider.getSecret().getBytes(
                                         StandardCharsets.UTF_8
                                 )
                         ),
