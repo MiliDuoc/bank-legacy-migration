@@ -16,6 +16,10 @@ public class JwtTokenGenerator {
 
         String token = Jwts.builder()
                 .subject("usuario-prueba")
+                .issuer(JwtConstants.ISSUER)
+                .audience()
+                    .add(JwtConstants.AUDIENCE)
+                    .and()
                 .claim("role", role)
                 .issuedAt(new Date())
                 .expiration(

@@ -25,6 +25,8 @@ public class JwtService {
 
         return Jwts.parser()
                 .verifyWith(key)
+                .requireIssuer(JwtConstants.ISSUER)
+                .requireAudience(JwtConstants.AUDIENCE)
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
