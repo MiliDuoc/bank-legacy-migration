@@ -17,7 +17,7 @@ public class JwtService {
     public JwtService() {
 
         this.key = Keys.hmacShaKeyFor(
-                JwtConstants.SECRET.getBytes(StandardCharsets.UTF_8)
+                JwtSecretProvider.getSecret().getBytes(StandardCharsets.UTF_8)
         );
     }
 
@@ -25,6 +25,8 @@ public class JwtService {
 
         return Jwts.parser()
                 .verifyWith(key)
+                .requireIssuer(JwtConstants.ISSUER)
+                .requireAudience(JwtConstants.AUDIENCE)
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();

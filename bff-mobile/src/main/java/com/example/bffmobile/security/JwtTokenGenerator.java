@@ -16,6 +16,10 @@ public class JwtTokenGenerator {
 
         String token = Jwts.builder()
                 .subject("usuario-prueba")
+                .issuer(JwtConstants.ISSUER)
+                .audience()
+                    .add(JwtConstants.AUDIENCE)
+                    .and()
                 .claim("role", role)
                 .issuedAt(new Date())
                 .expiration(
@@ -26,7 +30,7 @@ public class JwtTokenGenerator {
                 )
                 .signWith(
                         Keys.hmacShaKeyFor(
-                                JwtConstants.SECRET.getBytes(
+                                JwtSecretProvider.getSecret().getBytes(
                                         StandardCharsets.UTF_8
                                 )
                         ),
