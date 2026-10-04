@@ -6,11 +6,13 @@ import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
 import java.util.UUID;
 
+
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.proc.SecurityContext;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -151,10 +153,11 @@ public class AuthorizationServerConfig {
     }
 
     @Bean
-    AuthorizationServerSettings authorizationServerSettings() {
-
-        return AuthorizationServerSettings.builder()
-            .issuer("http://localhost:9000")
-            .build();
-    }
+    AuthorizationServerSettings authorizationServerSettings(
+        @Value("${app.oauth2.issuer:http://localhost:9000}") String issuer) {
+            
+    return AuthorizationServerSettings.builder()
+        .issuer(issuer)
+        .build();
+}
 }
