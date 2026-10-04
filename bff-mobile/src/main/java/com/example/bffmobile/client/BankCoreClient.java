@@ -7,7 +7,11 @@ import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -39,6 +43,10 @@ public class BankCoreClient {
             CoreAccountResponse response = restClient
                     .get()
                     .uri("/internal/accounts/{cuentaId}", cuentaId)
+                    .header(
+                            HttpHeaders.AUTHORIZATION,
+                            bearerToken()
+                    )
                     .retrieve()
                     .body(CoreAccountResponse.class);
 
@@ -64,6 +72,10 @@ public class BankCoreClient {
         List<CoreMovementResponse> response = restClient
                 .get()
                 .uri("/internal/accounts/{cuentaId}/movements", cuentaId)
+                .header(
+                        HttpHeaders.AUTHORIZATION,
+                        bearerToken()
+                )
                 .retrieve()
                 .body(new ParameterizedTypeReference<>() {
                 });
@@ -71,6 +83,25 @@ public class BankCoreClient {
         return response != null
                 ? response
                 : List.of();
+    }
+
+    private String bearerToken() {
+
+        Authentication authentication =
+                SecurityContextHolder
+                        .getContext()
+                        .getAuthentication();
+
+        if (authentication instanceof JwtAuthenticationToken jwtAuthentication) {
+            return "Bearer "
+                    + jwtAuthentication
+                            .getToken()
+                            .getTokenValue();
+        }
+
+        throw new IllegalStateException(
+                "No existe un token OAuth2 autenticado para propagar a Bank Core"
+        );
     }
 
     private Optional<CoreAccountResponse> getAccountFallback(

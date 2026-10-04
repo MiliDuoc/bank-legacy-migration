@@ -7,15 +7,13 @@ import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 @Configuration
 public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(
-            HttpSecurity http,
-            JwtAuthenticationFilter jwtFilter) throws Exception {
+            HttpSecurity http) throws Exception {
 
         http
                 .csrf(csrf -> csrf.disable())
@@ -28,8 +26,13 @@ public class SecurityConfig {
 
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/error").permitAll()
-                        .requestMatchers("/api/web/**").hasRole("WEB")
+                        .requestMatchers("/api/web/**")
+                            .hasAuthority("SCOPE_web")
                         .anyRequest().authenticated()
+                )
+
+                .oauth2ResourceServer(oauth2 ->
+                        oauth2.jwt(jwt -> {})
                 )
 
                 .exceptionHandling(exceptions -> exceptions
@@ -43,7 +46,7 @@ public class SecurityConfig {
                                             MediaType.APPLICATION_JSON_VALUE
                                     );
                                     response.getWriter().write(
-                                            "{\"error\":\"Token requerido o inválido\"}"
+                                            "{\"error\":\"Token OAuth2 requerido o invalido\"}"
                                     );
                                 }
                         )
@@ -57,15 +60,10 @@ public class SecurityConfig {
                                             MediaType.APPLICATION_JSON_VALUE
                                     );
                                     response.getWriter().write(
-                                            "{\"error\":\"El token no tiene permisos para este canal\"}"
+                                            "{\"error\":\"El token OAuth2 no tiene permisos para este canal\"}"
                                     );
                                 }
                         )
-                )
-
-                .addFilterBefore(
-                        jwtFilter,
-                        UsernamePasswordAuthenticationFilter.class
                 );
 
         return http.build();
