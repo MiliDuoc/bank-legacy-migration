@@ -6,6 +6,8 @@ import com.example.bffatm.client.dto.CoreWithdrawalResponse;
 import com.example.bffatm.exception.CoreApiException;
 
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
+import io.github.resilience4j.retry.annotation.Retry;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
@@ -33,9 +35,14 @@ public class BankCoreClient {
                 .build();
     }
 
+    @Retry(name = "bankCore")
     @CircuitBreaker(
             name = "bankCore",
             fallbackMethod = "getAccountFallback"
+    )
+    @Bulkhead(
+            name = "bankCore",
+            type = Bulkhead.Type.SEMAPHORE
     )
     public Optional<CoreAccountResponse> getAccount(Long cuentaId) {
 
@@ -62,6 +69,14 @@ public class BankCoreClient {
         }
     }
 
+    /*
+     * No se aplica Retry a retiros porque la operación modifica estado.
+     * Un reintento automático podría provocar un retiro duplicado.
+     */
+    @Bulkhead(
+            name = "bankCore",
+            type = Bulkhead.Type.SEMAPHORE
+    )
     public CoreWithdrawalResponse withdraw(
             Long cuentaId,
             BigDecimal monto) {

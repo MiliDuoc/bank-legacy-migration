@@ -3,7 +3,9 @@ package com.example.bffweb.client;
 import com.example.bffweb.client.dto.CoreAccountResponse;
 import com.example.bffweb.client.dto.CoreMovementResponse;
 
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
@@ -33,9 +35,14 @@ public class BankCoreClient {
                 .build();
     }
 
+    @Retry(name = "bankCore")
     @CircuitBreaker(
             name = "bankCore",
             fallbackMethod = "getAccountFallback"
+    )
+    @Bulkhead(
+            name = "bankCore",
+            type = Bulkhead.Type.SEMAPHORE
     )
     public Optional<CoreAccountResponse> getAccount(Long cuentaId) {
 
@@ -63,9 +70,14 @@ public class BankCoreClient {
         }
     }
 
+    @Retry(name = "bankCore")
     @CircuitBreaker(
             name = "bankCore",
             fallbackMethod = "getMovementsFallback"
+    )
+    @Bulkhead(
+            name = "bankCore",
+            type = Bulkhead.Type.SEMAPHORE
     )
     public List<CoreMovementResponse> getMovements(Long cuentaId) {
 
