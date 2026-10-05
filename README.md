@@ -2,44 +2,74 @@
 
 Proyecto académico desarrollado para la asignatura **Desarrollo Backend III (PBY2203)**.
 
-El proyecto implementa progresivamente la migración de un sistema bancario legacy hacia una arquitectura basada en microservicios, incorporando configuración centralizada, descubrimiento de servicios, seguridad mediante JWT, tolerancia a fallos y mensajería asíncrona.
+El proyecto implementa progresivamente la migración de un sistema bancario legacy hacia una arquitectura distribuida basada en microservicios, incorporando configuración centralizada, descubrimiento de servicios, seguridad OAuth2, tolerancia a fallos, mensajería asíncrona y despliegue mediante contenedores.
 
 ---
 
-## Estado actual — Semana 7
+## Estado actual — Semana 8
 
-Durante la Semana 7 se incorporó una arquitectura orientada a eventos mediante **Apache Kafka** y se validó la tolerancia a fallos mediante **Resilience4j**.
+Durante la Semana 8 se consolidó la arquitectura desarrollada en semanas anteriores y se preparó su ejecución completa mediante Docker.
 
-El caso de uso implementado corresponde a la publicación asíncrona de eventos después de retiros ATM exitosos.
+La solución incorpora actualmente:
 
-Flujo principal:
+- Spring Cloud Config para configuración centralizada.
+- Eureka para descubrimiento de servicios.
+- OAuth2 mediante Spring Authorization Server.
+- Client Credentials y scopes diferenciados por canal.
+- BFF Web, Mobile y ATM.
+- Bank Core como microservicio de negocio.
+- Resilience4j con Circuit Breaker, Retry y Bulkhead.
+- Apache Kafka para mensajería asíncrona.
+- PostgreSQL para persistencia.
+- Docker y Docker Compose para containerización y orquestación.
+
+---
+
+## Arquitectura
+
+Flujo principal de la solución:
 
 ```text
-BFF ATM
-   |
-   | HTTP
-   v
-Bank Core
-   |
-   | WithdrawalCreatedEvent
-   v
-Apache Kafka
-   |
-   | bank.withdrawals
-   v
-withdrawal-consumer
+                    Authorization Server
+                           OAuth2
+                             |
+              +--------------+--------------+
+              |              |              |
+              v              v              v
+           BFF Web       BFF Mobile      BFF ATM
+              \              |              /
+               \             |             /
+                +-------- Bank Core -------+
+                           |
+                    PostgreSQL
+                           |
+                WithdrawalCreatedEvent
+                           |
+                           v
+                     Apache Kafka
+                           |
+                  bank.withdrawals
+                           |
+                           v
+                withdrawal-consumer
 ```
 
-La transacción bancaria continúa ejecutándose de manera síncrona en Bank Core. Kafka se utiliza para comunicar el evento generado después de una operación exitosa.
+La infraestructura transversal incluye:
+
+```text
+Spring Cloud Config  -> configuración centralizada
+Eureka               -> descubrimiento de servicios
+Resilience4j         -> tolerancia a fallos
+Docker Compose       -> orquestación de la solución
+```
 
 ---
 
-## Arquitectura del proyecto
-
-Principales componentes:
+## Componentes principales
 
 ```text
 bank-legacy-migration/
+├── authorization-server/
 ├── bank-core/
 ├── batch/
 ├── bff-atm/
@@ -49,49 +79,87 @@ bank-legacy-migration/
 ├── config-server/
 ├── discovery-server/
 ├── withdrawal-consumer/
+├── database/
 ├── docs/
 ├── evidencias_ejecucion/
-├── docker-compose.kafka.yml
-├── .env.example
-└── README.md
+└── docker-compose.yaml
+```
+
+### Authorization Server
+
+Servidor OAuth2 implementado mediante Spring Authorization Server.
+
+Utiliza el flujo **Client Credentials** y entrega tokens JWT a los clientes registrados:
+
+```text
+bff-web-client     -> scope web
+bff-mobile-client  -> scope mobile
+bff-atm-client     -> scope atm
+```
+
+Puerto:
+
+```text
+9000
 ```
 
 ### Bank Core
 
-Microservicio encargado de la lógica bancaria principal y persistencia de transacciones.
+Microservicio encargado de la lógica bancaria y persistencia.
 
-Durante un retiro ATM exitoso:
-
-1. Valida la operación.
-2. Actualiza el saldo.
-3. Persiste el retiro.
-4. Publica un `WithdrawalCreatedEvent` en Kafka.
-
-### BFF ATM
-
-Backend for Frontend correspondiente al canal ATM.
-
-Incluye:
-
-- Seguridad mediante JWT.
-- Validación de roles.
-- Validación de issuer y audience.
-- Circuit Breaker mediante Resilience4j.
-- Comunicación HTTP con Bank Core.
-
-### BFF Web y BFF Mobile
-
-Backends especializados para sus respectivos canales.
-
-Implementan seguridad JWT con validación de firma, expiración, issuer, audience y roles.
-
-### Config Server
-
-Centraliza configuración externa utilizada por los microservicios.
+Expone endpoints internos consumidos por los BFF y, después de un retiro exitoso, publica un `WithdrawalCreatedEvent` en Kafka.
 
 Puerto:
 
-`8888`
+```text
+8080
+```
+
+### BFF Web
+
+Backend for Frontend del canal Web.
+
+Expone información completa de la cuenta y sus movimientos.
+
+Puerto HTTPS:
+
+```text
+8441
+```
+
+### BFF Mobile
+
+Backend for Frontend del canal Mobile.
+
+Entrega una representación simplificada de la cuenta y sus últimos movimientos.
+
+Puerto HTTPS:
+
+```text
+8442
+```
+
+### BFF ATM
+
+Backend for Frontend del canal ATM.
+
+Permite consultar saldo y ejecutar retiros.
+
+Puerto HTTPS:
+
+```text
+8443
+```
+
+### Config Server
+
+Centraliza la configuración externa de los servicios mediante Spring Cloud Config.
+
+Puerto:
+
+```text
+8888
+```
 
 ### Discovery Server
 
@@ -99,313 +167,70 @@ Implementa Service Discovery mediante Eureka.
 
 Puerto:
 
-`8761`
+```text
+8761
+```
 
 ### withdrawal-consumer
 
-Consumidor asíncrono de los eventos generados por Bank Core.
-
-Utiliza:
+Consumidor asíncrono de eventos de retiro.
 
 ```text
 Topic: bank.withdrawals
 Consumer Group: withdrawal-audit-group
 ```
 
-Los logs incluyen key, partition y offset para facilitar la trazabilidad del procesamiento.
+Puede ejecutarse con múltiples instancias dentro del mismo Consumer Group, permitiendo distribuir las particiones disponibles.
+
+### Batch
+
+Mantiene los procesos batch desarrollados durante las etapas anteriores del proyecto.
+
+Dentro de Docker Compose se configura como un proceso de ejecución finita y utiliza la misma base PostgreSQL de la solución.
 
 ---
 
-## Arquitectura de eventos
+## Seguridad OAuth2
 
-La solución utiliza una **arquitectura orientada a eventos con patrón Publish/Subscribe**.
+La seguridad implementada previamente mediante JWT generado localmente fue reemplazada por un esquema OAuth2 centralizado.
 
-Bank Core actúa como productor y publica:
-
-`WithdrawalCreatedEvent`
-
-El evento contiene:
-
-- `withdrawalId`
-- `accountId`
-- `amount`
-- `previousBalance`
-- `newBalance`
-- `occurredAt`
-
-El tópico utilizado es:
-
-`bank.withdrawals`
-
-La key corresponde a:
-
-`accountId`
-
-El tópico utiliza **3 particiones**, permitiendo distribuir eventos entre múltiples consumidores pertenecientes al mismo Consumer Group.
-
-El diagrama completo se encuentra en:
-
-`docs/arquitectura-eventos.md`
-
-La propuesta técnica de Semana 7 se encuentra en:
-
-`docs/propuesta-tecnica-s7.md`
-
----
-
-## Requisitos
-
-Para ejecutar el proyecto se requiere:
-
-- Java 17.
-- Maven.
-- Docker.
-- PostgreSQL.
-- Git.
-
----
-
-## Variables de entorno
-
-Los BFF utilizan la variable:
+Los BFF obtienen tokens desde `authorization-server` utilizando:
 
 ```text
-JWT_SECRET
+grant_type=client_credentials
 ```
 
-Existe un archivo de referencia:
-
-`.env.example`
-
-Crear localmente un archivo `.env` con una clave válida:
+Cada canal posee un scope específico:
 
 ```text
-JWT_SECRET=reemplazar-por-clave-secreta-local
+Web     -> web
+Mobile  -> mobile
+ATM     -> atm
 ```
 
-El archivo `.env` está excluido del repositorio mediante `.gitignore`.
+Los BFF funcionan como Resource Servers y validan los tokens recibidos.
 
-Antes de iniciar un BFF desde terminal:
+Bank Core también funciona como Resource Server. Los BFF propagan el Bearer Token recibido al realizar llamadas internas hacia Core.
 
-```bash
-set -a
-source ../.env
-set +a
-```
-
----
-
-## Ejecución de Kafka
-
-Desde la raíz del proyecto:
-
-```bash
-docker compose -f docker-compose.kafka.yml up -d
-```
-
-Comprobar el contenedor:
-
-```bash
-docker ps --filter name=bank-kafka
-```
-
----
-
-## Configuración del tópico Kafka
-
-Para una instalación nueva, crear el tópico con tres particiones:
-
-```bash
-docker exec bank-kafka \
-  /opt/kafka/bin/kafka-topics.sh \
-  --bootstrap-server localhost:9092 \
-  --create \
-  --if-not-exists \
-  --topic bank.withdrawals \
-  --partitions 3 \
-  --replication-factor 1
-```
-
-Comprobar la configuración:
-
-```bash
-docker exec bank-kafka \
-  /opt/kafka/bin/kafka-topics.sh \
-  --bootstrap-server localhost:9092 \
-  --describe \
-  --topic bank.withdrawals
-```
-
-La configuración esperada es:
+Este esquema permite distinguir entre:
 
 ```text
-PartitionCount: 3
-ReplicationFactor: 1
-```
-
-Si el tópico ya existe con una sola partición, puede aumentarse a tres mediante:
-
-```bash
-docker exec bank-kafka \
-  /opt/kafka/bin/kafka-topics.sh \
-  --bootstrap-server localhost:9092 \
-  --alter \
-  --topic bank.withdrawals \
-  --partitions 3
+Sin token             -> HTTP 401
+Token + scope válido  -> HTTP 200
+Scope incorrecto      -> HTTP 403
 ```
 
 ---
 
-## Ejecución de los servicios
+## Resiliencia
 
-Los servicios deben iniciarse desde terminales independientes.
+Las llamadas síncronas desde los BFF hacia Bank Core están protegidas mediante **Resilience4j**.
 
-### 1. Config Server
+La política `bankCore` se encuentra centralizada en Config Server.
 
-```bash
-cd config-server
-mvn spring-boot:run
-```
+### Circuit Breaker
 
-Puerto:
-
-`8888`
-
-### 2. Discovery Server
-
-```bash
-cd discovery-server
-mvn spring-boot:run
-```
-
-Puerto:
-
-`8761`
-
-### 3. Bank Core
-
-```bash
-cd bank-core
-mvn spring-boot:run
-```
-
-Puerto:
-
-`8080`
-
-### 4. withdrawal-consumer
-
-```bash
-cd withdrawal-consumer
-mvn spring-boot:run
-```
-
-Para demostrar procesamiento distribuido pueden ejecutarse dos instancias del mismo consumidor en terminales diferentes.
-
-Kafka realizará automáticamente el rebalance de las particiones dentro de:
-
-`withdrawal-audit-group`
-
-### 5. BFF ATM
-
-```bash
-cd bff-atm
-
-set -a
-source ../.env
-set +a
-
-mvn spring-boot:run
-```
-
-Puerto HTTPS:
-
-`8443`
-
-### 6. BFF Web
-
-```bash
-cd bff-web
-
-set -a
-source ../.env
-set +a
-
-mvn spring-boot:run
-```
-
-Puerto HTTPS:
-
-`8441`
-
-### 7. BFF Mobile
-
-```bash
-cd bff-mobile
-
-set -a
-source ../.env
-set +a
-
-mvn spring-boot:run
-```
-
-Puerto HTTPS:
-
-`8442`
-
----
-
-## Prueba de retiro ATM
-
-Generar un JWT para el canal ATM:
-
-```bash
-cd bff-atm
-
-set -a
-source ../.env
-set +a
-
-export JWT_ATM="$(mvn -q exec:java \
-  -Dexec.mainClass="com.example.bffatm.security.JwtTokenGenerator" \
-  -Dexec.args="ATM")"
-```
-
-Ejecutar un retiro:
-
-```bash
-curl -k -i \
-  -X POST \
-  -H "Authorization: Bearer $JWT_ATM" \
-  -H "Content-Type: application/json" \
-  -d '{"monto":100}' \
-  https://localhost:8443/api/atm/cuentas/101/retiros
-```
-
-Una operación exitosa genera una respuesta HTTP 200 y posteriormente Bank Core publica un `WithdrawalCreatedEvent`.
-
-El evento puede observarse en la consola de `withdrawal-consumer`.
-
----
-
-## Escalabilidad Kafka
-
-El tópico `bank.withdrawals` utiliza tres particiones.
-
-Al ejecutar dos instancias de `withdrawal-consumer` dentro de `withdrawal-audit-group`, Kafka distribuye las particiones entre ambas instancias mediante rebalance automático.
-
-Durante las pruebas se generaron retiros para múltiples cuentas y se comprobó el procesamiento de eventos en diferentes particiones y consumidores.
-
-La key utilizada es `accountId`, permitiendo mantener afinidad de los eventos asociados a una misma cuenta con una partición.
-
----
-
-## Tolerancia a fallos
-
-BFF ATM utiliza un Circuit Breaker de Resilience4j para proteger llamadas hacia Bank Core.
-
-La configuración principal corresponde a:
+Configuración principal:
 
 ```text
 sliding-window-type=COUNT_BASED
@@ -417,78 +242,350 @@ permitted-number-of-calls-in-half-open-state=2
 automatic-transition-from-open-to-half-open-enabled=true
 ```
 
-Durante las pruebas se detuvo Bank Core y se realizaron llamadas consecutivas desde BFF ATM.
+Permite evitar llamadas repetidas hacia Bank Core cuando el servicio presenta fallos.
 
-Inicialmente se ejecutó el fallback debido a errores de conexión, registrándose `ResourceAccessException`.
+### Retry
 
-Una vez alcanzado el umbral configurado, Resilience4j rechazó nuevas llamadas mediante `CallNotPermittedException`, evidenciando la apertura del Circuit Breaker.
+Configuración:
 
-Después de iniciar nuevamente Bank Core y transcurrir el período configurado, el Circuit Breaker permitió llamadas de prueba y el servicio volvió a responder HTTP 200.
+```text
+max-attempts=3
+wait-duration=500ms
+```
+
+Se utiliza en operaciones de consulta hacia Bank Core.
+
+### Bulkhead
+
+Configuración:
+
+```text
+max-concurrent-calls=5
+max-wait-duration=0
+```
+
+Limita la cantidad de llamadas concurrentes hacia Bank Core y evita que una dependencia saturada consuma todos los recursos disponibles.
 
 ---
 
-## Seguridad JWT
+## Mensajería Kafka
 
-Los BFF validan:
+La operación bancaria se procesa de manera síncrona en Bank Core.
 
-- Firma del token.
-- Expiración.
-- Subject.
-- Role.
-- Issuer.
-- Audience.
-
-Issuer utilizado:
-
-`bank-legacy-migration`
-
-Audiencias:
+Después de un retiro exitoso, Core publica:
 
 ```text
-BFF ATM    -> bff-atm
-BFF Web    -> bff-web
-BFF Mobile -> bff-mobile
+WithdrawalCreatedEvent
 ```
 
-El secreto de firma se obtiene mediante la variable de entorno `JWT_SECRET` y no se almacena directamente en el código fuente.
+en:
+
+```text
+Topic: bank.withdrawals
+```
+
+El evento contiene:
+
+```text
+withdrawalId
+accountId
+amount
+previousBalance
+newBalance
+occurredAt
+```
+
+La key utilizada corresponde a:
+
+```text
+accountId
+```
+
+El tópico posee:
+
+```text
+PartitionCount: 3
+ReplicationFactor: 1
+```
+
+El uso de `accountId` como key mantiene afinidad entre los eventos asociados a una misma cuenta y su partición.
+
+Las instancias de `withdrawal-consumer` pertenecen a:
+
+```text
+withdrawal-audit-group
+```
+
+Kafka distribuye automáticamente las particiones entre las instancias disponibles mediante el rebalance del Consumer Group.
 
 ---
 
-## Evidencias
+## Docker y ejecución
 
-Las evidencias de ejecución de Semana 7 se encuentran en:
+La arquitectura completa se encuentra containerizada.
 
-`evidencias_ejecucion/semana7/`
-
-Incluyen:
+Los servicios Java poseen imágenes propias basadas en Java 17:
 
 ```text
-E01_arquitectura_eventos.png
-E02_kafka_topic_3_particiones.png
-E03_retiro_evento_kafka_consumidor.png
-E04_escalabilidad_kafka_dos_consumidores.png
-E05A_resilience4j_circuit_breaker_open.png
-E05B_resilience4j_recuperacion.png
+bank-authorization-server
+bank-config-server
+bank-discovery-server
+bank-core
+bank-bff-web
+bank-bff-mobile
+bank-bff-atm
+bank-withdrawal-consumer
+bank-batch
 ```
 
-Las evidencias muestran:
+Docker Compose incorpora además:
 
-- Arquitectura de eventos y patrón Publish/Subscribe.
-- Kafka configurado con tres particiones.
-- Retiro ATM exitoso.
-- Publicación de `WithdrawalCreatedEvent` desde Bank Core.
-- Procesamiento asíncrono del evento mediante `withdrawal-consumer`.
-- Distribución de particiones y eventos entre dos consumidores.
-- Apertura del Circuit Breaker ante la caída de Bank Core.
-- Recuperación del servicio y retorno a respuestas HTTP 200.
+```text
+PostgreSQL 17
+Apache Kafka 3.9.1
+```
+
+### Construcción de los servicios
+
+Antes de construir las imágenes se deben generar los JAR:
+
+```bash
+mvn clean package -DskipTests
+```
+
+en cada proyecto Maven.
+
+Posteriormente, desde la raíz:
+
+```bash
+docker compose build
+```
+
+### Levantar la arquitectura
+
+Desde la raíz del proyecto:
+
+```bash
+docker compose up -d
+```
+
+Comprobar el estado:
+
+```bash
+docker compose ps -a
+```
+
+El servicio `batch` puede aparecer como:
+
+```text
+Exited (0)
+```
+
+después de completar correctamente su ejecución.
+
+### Detener la arquitectura
+
+```bash
+docker compose down
+```
+
+---
+
+## Persistencia
+
+PostgreSQL se ejecuta como parte de Docker Compose.
+
+Puerto expuesto localmente:
+
+```text
+5433
+```
+
+La inicialización utiliza:
+
+```text
+database/bank_legacy_snapshot.sql
+```
+
+El snapshot contiene tanto las tablas de negocio como las tablas de metadata utilizadas por Spring Batch, permitiendo reproducir el estado requerido por la aplicación dentro del entorno Docker.
+
+---
+
+## Validación rápida
+
+### Obtener token ATM
+
+```bash
+ATM_TOKEN=$(curl -s \
+  -u bff-atm-client:atm-secret \
+  -d grant_type=client_credentials \
+  -d scope=atm \
+  http://localhost:9000/oauth2/token \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
+```
+
+### Consultar saldo
+
+```bash
+curl -sk \
+  -H "Authorization: Bearer $ATM_TOKEN" \
+  https://localhost:8443/api/atm/cuentas/101/saldo
+```
+
+Respuesta esperada:
+
+```text
+HTTP 200
+```
+
+### Consultar estado del tópico
+
+```bash
+docker compose exec kafka \
+  /opt/kafka/bin/kafka-topics.sh \
+  --bootstrap-server localhost:29092 \
+  --describe \
+  --topic bank.withdrawals
+```
+
+### Consultar Consumer Group
+
+```bash
+docker compose exec kafka \
+  /opt/kafka/bin/kafka-consumer-groups.sh \
+  --bootstrap-server localhost:29092 \
+  --describe \
+  --group withdrawal-audit-group
+```
+
+---
+
+## Decisiones técnicas
+
+### Transacción bancaria y Kafka
+
+La modificación del saldo continúa siendo una operación síncrona ejecutada por Bank Core.
+
+Kafka se utiliza posteriormente para comunicar el evento generado por una operación exitosa, evitando delegar la consistencia principal de la transacción bancaria al procesamiento asíncrono.
+
+### Retry en operaciones de escritura
+
+Las consultas desde los BFF utilizan Retry como mecanismo de resiliencia.
+
+El retiro ATM **no utiliza Retry**.
+
+Un retiro modifica estado. Si Bank Core procesara correctamente la operación pero la respuesta se perdiera durante la comunicación, un reintento automático podría ejecutar un segundo retiro.
+
+Por esta razón, el retiro utiliza Bulkhead para limitar concurrencia, pero no se reintenta automáticamente.
+
+### Configuración centralizada
+
+Los parámetros de resiliencia se mantienen en `config-repo`, evitando distribuir la misma configuración entre los distintos BFF y permitiendo mantener una política común para la dependencia `bankCore`.
+
+---
+
+## Mejoras incorporadas
+
+A partir de la implementación y retroalimentación de Semana 7 se incorporaron las siguientes mejoras:
+
+- Resilience4j se extendió y centralizó para los BFF Web, Mobile y ATM mediante Circuit Breaker, Retry y Bulkhead según el tipo de operación.
+- Se evitó aplicar Retry al retiro ATM para prevenir posibles operaciones duplicadas.
+- `withdrawal-consumer` puede escalar horizontalmente dentro de `withdrawal-audit-group`, distribuyendo las tres particiones de `bank.withdrawals` entre múltiples instancias.
+- La seguridad JWT implementada previamente fue reemplazada por OAuth2 mediante un Authorization Server, Client Credentials y scopes específicos por canal.
+- Bank Core fue protegido como Resource Server y recibe el Bearer Token propagado por los BFF.
+- La arquitectura completa fue containerizada mediante imágenes Docker independientes.
+- Docker Compose integra infraestructura, configuración, descubrimiento, seguridad, BFF, Bank Core, Batch, persistencia y mensajería.
+- PostgreSQL puede reconstruirse mediante un snapshot controlado del esquema y datos requeridos por la solución.
+
+---
+
+## Evidencias — Semana 8
+
+Las evidencias de ejecución se encuentran en [`evidencias_ejecucion/semana8/`](evidencias_ejecucion/semana8/).
+
+### E01 — Docker Compose
+
+[Ver evidencia E01](evidencias_ejecucion/semana8/E01-docker-compose.png)
+
+Demuestra la orquestación de la arquitectura completa y las imágenes Docker generadas para los servicios Java.
+
+### E02 — OAuth2 y scopes
+
+[Ver evidencia E02](evidencias_ejecucion/semana8/E02-oauth2-scopes.png)
+
+Demuestra:
+
+```text
+Sin token             -> HTTP 401
+Token ATM + scope atm -> HTTP 200
+Token Mobile en ATM   -> HTTP 403
+```
+
+### E03 — BFF hacia Bank Core
+
+[Ver evidencia E03](evidencias_ejecucion/semana8/E03-bff-bank-core.png)
+
+Valida Web, Mobile y ATM con tokens OAuth2 válidos y respuestas HTTP 200.
+
+### E04 — Resilience4j
+
+[Ver evidencia E04](evidencias_ejecucion/semana8/E04-resilience4j.png)
+
+Muestra la configuración centralizada de Circuit Breaker, Retry y Bulkhead y su aplicación en BFF ATM.
+
+### E05 — Kafka y escalabilidad
+
+[Ver evidencia E05](evidencias_ejecucion/semana8/E05-kafka-escalabilidad.png)
+
+Demuestra:
+
+- Topic `bank.withdrawals`.
+- Tres particiones.
+- Consumer Group `withdrawal-audit-group`.
+- Dos instancias de `withdrawal-consumer`.
+- Distribución de particiones.
+- Procesamiento sin eventos pendientes (`LAG=0`).
+
+### E06 — Flujo asíncrono
+
+[Ver evidencia E06](evidencias_ejecucion/semana8/E06-kafka-end-to-end.png)
+
+Muestra la publicación de `WithdrawalCreatedEvent` desde Bank Core y la integración de las instancias de `withdrawal-consumer` con Kafka.
+
+---
+
+## Evolución del proyecto
+
+La implementación de Semana 8 integra y extiende el trabajo desarrollado progresivamente durante el proyecto:
+
+```text
+Sistema legacy
+      ↓
+Microservicios y BFF
+      ↓
+Config Server + Eureka
+      ↓
+Seguridad
+      ↓
+Resilience4j
+      ↓
+Kafka y procesamiento asíncrono
+      ↓
+OAuth2 + Docker + orquestación completa
+```
+
+La evolución mantiene la separación de responsabilidades entre infraestructura, canales de acceso, lógica de negocio y procesamiento asíncrono.
 
 ---
 
 ## Documentación
 
-- Arquitectura de eventos: `docs/arquitectura-eventos.md`
-- Propuesta técnica Semana 7: `docs/propuesta-tecnica-s7.md`
-- Evidencias de ejecución Semana 7: `evidencias_ejecucion/semana7/`
+```text
+docs/arquitectura-eventos.md
+docs/propuesta-tecnica-s7.md
+evidencias_ejecucion/semana7/
+evidencias_ejecucion/semana8/
+```
 
 ---
 
@@ -499,9 +596,12 @@ Las evidencias muestran:
 - Spring Cloud Config
 - Netflix Eureka
 - Spring Security
-- JWT / JJWT
+- Spring Authorization Server
+- OAuth2 / JWT
 - Resilience4j
 - Apache Kafka
 - PostgreSQL
+- Spring Batch
 - Maven
 - Docker
+- Docker Compose
